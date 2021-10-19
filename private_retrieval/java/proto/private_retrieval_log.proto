@@ -1,0 +1,357 @@
+// This file contains protos for metrics and monitoring used by Private
+// Information Retrieval (PIR).
+
+syntax = "proto2";
+
+package private_retrieval;
+
+import "storage/datapol/annotations/proto/semantic_annotations.proto";
+
+option java_package = "com.google.common.logging.privateretrieval";
+option java_outer_classname = "PirLog";
+
+option (datapol.file_vetting_status) = "latest";
+
+// Defines the top-level PIR logging event.
+//
+// Client teams using PIR will include this proto as a submessage of their
+// logging proto.
+message PirEvent {
+  // Currently, we only log events at the granularity of tasks, but in the
+  // future we may want to log broader scope events, such as the number of
+  // queued tasks.
+  oneof kind {
+    // Log events scoped to a single task (file download).
+    PirDownloadTaskEvent pir_download_task_event = 1;
+  }
+}
+
+// Defines log events scoped to a single task (file download).
+message PirDownloadTaskEvent {
+  // The name of the PIR database being accessed by the download task.
+  optional string database_name = 1;
+
+  // The version of the PIR database being accessed by the download task.
+  optional string database_version = 2;
+
+  // A unique number identifying this PirDownloadTask. It will be the same for
+  // all messages logged by this client during this protocol execution.
+  // Expected lifespan: < 1 hour.
+  optional int64 task_id = 3 [(datapol.semantic_type) = ST_SESSION_ID];
+
+  // Sort index for events from the same task id.
+  optional int64 task_event_index = 4;
+
+  // Milliseconds between the creation of the task and the generation of this
+  // event, according to the device's realtime clock.
+  optional int64 time_since_task_creation_ms = 5;
+
+  // Kind of PirDownloadTaskEvent.
+  oneof kind {
+    // A TaskCreated event.
+    TaskCreated task_created = 6;
+    // A TaskCompleted event.
+    TaskCompleted task_completed = 7;
+    // A StateTransition event.
+    StateTransition state_transition = 8;
+    // A CryptoOperation event.
+    CryptoOperation crypto_operation = 9;
+    // A Communication event.
+    Communication communication = 10;
+  }
+
+  // Enumerates the various states of the PirDownloadTask finite state machine.
+  enum DownloadTaskState {
+    // Undefined value.
+    UNKNOWN = 0;
+
+    // Errors that arise before the task is fully created.
+    CREATION = 1;
+
+    // The FSM starts in this state and stays here until the task is assigned
+    // a thread and the event loop is launched.
+    WAITING_TO_RUN = 2;
+
+    // Connecting to the server.
+    CONNECTING = 3;
+
+    // Selecting a database from the server.
+    SELECTING_DATABASE = 4;
+
+    // Selecting a file from the previously selected database.
+    SELECTING_FILE = 5;
+
+    // Downloading chunks of the previously selected file.
+    DOWNLOADING = 6;
+
+    // Disconnecting from the server.
+    DISCONNECTING = 7;
+
+    // Terminal state indicating that file download was a success.
+    SUCCESS = 8;
+
+    // Terminal state indicating that file download failed or was cancelled.
+    FAILED = 9;
+  }
+
+  // This event is logged when the PirDownloadTask is created.
+  message TaskCreated {}
+
+  // This event is logged when the PirDownloadTask completes.
+  message TaskCompleted {
+    // The outcome of the task.
+    oneof outcome {
+      // The task was a success.
+      Success success = 1;
+
+      // The task failed or was cancelled.
+      Failure failure = 2;
+    }
+
+    // Describes a task that succeeded.
+    message Success {
+      // Currently, we do not log additional information in case of success,
+      // but this message leaves open the option of revisiting that decision.
+    }
+
+    // Describes a task that failed or was cancelled.
+    message Failure {
+      // Enumerates all the known ways the task could fail.
+      enum Code {
+        // Undefined value.
+        UNKNOWN = 0;
+
+        // The task was cancelled.
+        CANCELLED = 1;
+
+        // Each failure code is tied to a specific failure point in the code.
+        INTERNAL_ERROR = 2;
+        INVALID_URI = 3;
+        UNEXPECTED_RUN_EVENT = 4;
+        UNEXPECTED_SELECT_DATABASE_RESPONSE = 5;
+        UNEXPECTED_SELECT_FILE_RESPONSE = 6;
+        UNEXPECTED_GET_CHUNKS_RESPONSE = 7;
+        SERVER_STREAM_UNEXPECTED_HALF_CLOSE = 8;
+        SERVER_STREAM_UNEXPECTED_ERROR = 9;
+        NO_SUCH_DATABASE = 10;
+        UNRECOGNIZED_SELECT_DATABASE_FAILURE = 11;
+        INVALID_ENTRY_INDEX = 12;
+        BEGIN_SESSION_FAILED = 13;
+        SELECT_FILE_FAILED = 14;
+        UNEXPECTED_NUMBER_OF_CHUNK_RANGES = 15;
+        UNEXPECTED_CHUNK_INDEX = 16;
+        UNEXPECTED_NUMBER_OF_CHUNKS = 17;
+        IO_ERROR_WRITING_TO_DISK = 18;
+        SERVER_REJECTED_CHUNK_RANGE = 19;
+        UNRECOGNIZED_GET_CHUNKS_FAILURE = 20;
+        BAD_PARTIAL_DOWNLOAD = 21;
+        FAILED_TO_DELETE_PARTIAL_DOWNLOAD = 22;
+      }
+
+      // What state the task was in when it failed.
+      optional DownloadTaskState from_state = 1;
+
+      // How the task failed.
+      optional Code failure_code = 2;
+    }
+  }
+
+  // Describes a transition of the PirDownloadTask's finite state machine.
+  message StateTransition {
+    // Whether this event describes the entry or exit half of a state
+    // transition.
+    oneof kind {
+      // Entering a state.
+      Entered entered = 1;
+      // Exiting a state.
+      Exited exited = 2;
+    }
+
+    // Describes entering a state.
+    message Entered {
+      // What state is being entered.
+      optional DownloadTaskState state = 1;
+    }
+
+    // Describes exiting a state.
+    message Exited {
+      // What state is being exited.
+      optional DownloadTaskState state = 1;
+      // How long the state machine was in this state before it was exited (in
+      // milliseconds).
+      optional int64 duration_ms = 2;
+    }
+  }
+
+  // Describes resources spent performing cryptography.
+  message CryptoOperation {
+    // What cryptographic operation was being performed.
+    oneof operation {
+      // Calls to PirClient.beginSession()
+      BeginSession begin_session = 3;
+
+      // Calls to PirClient.createRequest()
+      CreateRequest create_request = 4;
+
+      // Calls to PirClient.processResponseChunk()
+      ProcessResponseChunk process_response_chunk = 5;
+    }
+
+    // How long the operation took (in milliseconds).
+    optional int64 duration_ms = 2;
+
+    // Describes calls to PirClient.beginSession()
+    message BeginSession {
+      // Currently, we do not log additional information about this request,
+      // but this message leaves open the option of revisiting that decision.
+    }
+
+    // Describes calls to PirClient.createRequest()
+    message CreateRequest {
+      // Currently, we do not log additional information about this request,
+      // but this message leaves open the option of revisiting that decision.
+    }
+
+    // Describes calls to PirClient.processResponseChunk()
+    message ProcessResponseChunk {
+      // The 0-based index of the processed chunk.
+      optional uint32 chunk_number = 1;
+    }
+  }
+
+  // Describes communications events.
+  message Communication {
+    // What kind of communication event this is.
+    oneof kind {
+      // A message was sent to the server.
+      MessageSent message_sent = 1;
+      // A message was received from the server.
+      MessageReceived message_received = 2;
+      // The connection to the server changed status.
+      StreamStatusChange stream_status_change = 3;
+    }
+
+    // Describes a message sent to the server.
+    message MessageSent {
+      // The size of the serialized message proto, in bytes.
+      optional int64 size_bytes = 1;
+
+      // What kind of message it was (see ClientToServerMessage proto).
+      oneof kind {
+        // A SelectDatabaseRequest message
+        SelectDatabaseRequest select_database_request = 2;
+        // A SelectFileRequest message
+        SelectFileRequest select_file_request = 3;
+        // A GetChunksRequest message
+        GetChunksRequest get_chunks_request = 4;
+      }
+
+      // Describes a SelectDatabaseRequest message.
+      message SelectDatabaseRequest {
+        // Currently, we do not log additional information about this request,
+        // but this message leaves open the option of revisiting that decision.
+      }
+
+      // Describes a SelectFileRequest message.
+      message SelectFileRequest {
+        // Currently, we do not log additional information about this request,
+        // but this message leaves open the option of revisiting that decision.
+      }
+
+      // Describes a GetChunksRequest message.
+      message GetChunksRequest {
+        // Identifies a contiguous set of chunks within the currently selected
+        // file. Selects min_chunk_number through
+        // (min_chunk_number + count - 1), inclusive.
+        message ChunkRange {
+          // The 0-based index of the first requested chunk.
+          optional uint32 min_chunk_number = 1;
+          // The number of requested chunks.
+          optional uint32 count = 2;
+        }
+
+        // Identifies one or more contiguous chunk ranges to download.
+        repeated ChunkRange chunk_ranges = 1;
+      }
+    }
+
+    // Describes a message received from the server.
+    message MessageReceived {
+      // The size of the serialized message proto, in bytes.
+      optional int64 size_bytes = 1;
+
+      // What kind of message it was (see ClientToServerMessage proto).
+      oneof kind {
+        // A SelectDatabaseResponse message.
+        SelectDatabaseResponse select_database_response = 2;
+        // A SelectFileResponse message.
+        SelectFileResponse select_file_response = 3;
+        // A GetChunksResponse message.
+        GetChunksResponse get_chunks_response = 4;
+        // An EmptyRequestError message.
+        EmptyRequestError empty_request_error = 5;
+      }
+
+      // Describes a SelectDatabaseResponse message.
+      message SelectDatabaseResponse {
+        // Currently, we do not log additional information about this response,
+        // but this message leaves open the option of revisiting that decision.
+      }
+
+      // Describes a SelectFileResponse message.
+      message SelectFileResponse {
+        // Currently, we do not log additional information about this response,
+        // but this message leaves open the option of revisiting that decision.
+      }
+
+      // Describes a GetChunksResponse message.
+      message GetChunksResponse {
+        // Identifies a contiguous set of chunks within the currently selected
+        // file. Selects min_chunk_number through
+        // (min_chunk_number + count - 1), inclusive.
+        message ChunkRange {
+          // The 0-based index of the first downloaded chunk.
+          optional uint32 min_chunk_number = 1;
+          // The number of downloaded chunks.
+          optional uint32 count = 2;
+        }
+
+        // Identifies one or more contiguous chunk ranges that were downloaded.
+        // Empty if the GetChunkRequest was not successful.
+        repeated ChunkRange chunk_ranges = 1;
+      }
+
+      // Describes a EmptyRequestError message.
+      message EmptyRequestError {
+        // Currently, we do not log additional information about this response,
+        // but this message leaves open the option of revisiting that decision.
+      }
+    }
+
+    // Describes the connection to the server changing status.
+    message StreamStatusChange {
+      // What kind of status change occurred.
+      optional StatusCode status = 1;
+
+      // Enumerates the possible connection status changes.
+      enum StatusCode {
+        // Undefined value.
+        UNKNOWN = 0;
+
+        // An stream error was sent on the stream from the client to the
+        // server.
+        STREAM_ERROR_SENT = 1;
+
+        // The client half-closed the connection.
+        STREAM_COMPLETED_SENT = 2;
+
+        // An stream error was received on the stream from the server to the
+        // client.
+        STREAM_ERROR_RECEIVED = 3;
+
+        // The server half-closed the connection.
+        STREAM_COMPLETED_RECEIVED = 4;
+      }
+    }
+  }
+}

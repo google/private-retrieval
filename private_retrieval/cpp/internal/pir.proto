@@ -1,0 +1,202 @@
+// Copyright 2021 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto2";
+
+package private_retrieval;
+
+import "shell_encryption/serialization.proto";
+
+option java_package = "com.google.privacy.privateretrieval";
+option java_multiple_files = true;
+
+// Describes the database shape: each bin of the database is composed of a group
+// of entities (where the mapping from the desired entity to the bins is handled
+// in the manifest). Entries are grouped so that each bin has a uniform size.
+message DatabaseParams {
+  // Total number of database entries (bins).
+  optional int32 database_size = 1;
+
+  // Maximum size of each database entry in bytes.
+  optional int32 entry_size = 2;
+}
+
+// Describes XPIR scheme based on a Ring-LWE system.
+message XpirParams {
+  // Parameters for the base arithmetic of the Ring-LWE scheme.
+  optional RingLweParams ring_lwe_params = 1;
+
+  // Parameters specific to the PIR protocol instance, e.g. recursion.
+  optional PirParams pir_params = 2;
+}
+
+// Maintains useful variables for the XPIR scheme during runtime. All these
+// variables can be deterministically computed by DatabaseParams and XpirParams.
+message XpirRuntimeParams {
+  // Number of slices to expect for each PIR Request.
+  optional int32 number_of_slices = 1;
+
+  // Number of chunks each database bin is divided into, i.e. the number of
+  // chunks expected for each PIR Response.
+  optional int32 number_of_chunks = 2;
+
+  // The size of the chunks for each database bin.
+  optional int32 chunk_size_bytes = 3;
+}
+
+// Public Ring-LWE encryption scheme parameters.
+message RingLweParams {
+  // Both the client and server will use different integer types for arithmetic
+  // based on the type of modulus provided.
+  oneof modulus_kind {
+    // A modulus up to 32-bits.
+    Int32Modulus int_32_modulus = 1;
+
+    // A modulus up to 64-bits.
+    Int64Modulus int_64_modulus = 2;
+
+    // A modulus greater than 64-bits.
+    BigIntModulus big_int_modulus = 3;
+  }
+
+  // Represents a modulus up to 32 bits.
+  message Int32Modulus {
+    // A chain of decreasing moduli values (up to 32 bits)
+    repeated int32 modulus = 7;
+
+    reserved 8;
+  }
+
+  // Represents a modulus up to 64 bits.
+  message Int64Modulus {
+    // A chain of decreasing moduli values (up to 64 bits)
+    repeated int64 modulus = 9;
+
+    reserved 10;
+  }
+
+  // Represents a modulus greater than 64 bits.
+  message BigIntModulus {
+    // A chain of decreasing moduli encoded as byte-strings.
+    repeated bytes modulus = 3;
+  }
+
+  // Log (base 2) of the polynomial degree N (dimension of the vectorspace).
+  optional int32 log_degree = 4;
+
+  // Plaintext modulus in bits log t.
+  optional int32 log_t = 5;
+
+  // Variance of Gaussian error in bits.
+  optional int32 variance = 6;
+}
+
+// Parameters specific to the PIR protocol instance, e.g. recursion.
+message PirParams {
+  // Number of levels of recursion to perform for the PIR request.
+  optional int32 levels_of_recursion = 1;
+
+  reserved 2, 3, 4;
+}
+
+message PirRequest {
+  // The request is an encoding of a flattened table of encrypted {1} and {0}
+  // messages as necessary for PIR. If the database has D items and we are using
+  // L levels of recursion, this table will contain L*(D^(1/L)) messages,
+  // representing a table with L rows and D^(1/L) items per row. Each row should
+  // contain exactly one {1} ciphertext, with the rest of the items containing
+  // {0} messages.
+  //
+  // The flattened table is laid out in the following order:
+  //
+  //     level  |  ciphertexts
+  //     -----------------------------
+  //         1  | {0} ... {1} ... {0}
+  //         2  | {0} ... {1} ... {0}
+  //       ...  | ...
+  //
+  // The ciphertexts are uploaded in a compressed format as NTT Polynomials
+  // using a PRNG seed to expand them into ciphertexts.
+  //
+  // Optionally, groups of ciphertexts can be compressed by encoding j-hot
+  // ciphertext vectors as {x^j}. If we are using this protocol, items in each
+  // row of the table are grouped into clusters of K sequential ciphertexts. If
+  // a {1} appears in the group, we represent the group as {x^j}, where j is the
+  // index of the {1}. If the group consists entirely of {0}s, the group is
+  // represented as {0}. Thus each row of the table is represented by
+  // (D^(1/L))/K messages. The field will contain L * (D^(1/L)) / K messages.
+  // The client indicates compression into groups of K by sending log_2(K)
+  // Galois Keys in this request. Setting K = 1 identically matches the
+  // flattened table representation above.
+  repeated rlwe.SerializedNttPolynomial request = 1;
+
+  // The PRNG seed used to expand the compressed RLWE ciphertexts.
+  optional bytes prng_seed = 2;  // Required.
+
+  // The number of levels of recursion to use.
+  optional int32 levels_of_recursion = 3;  // Required.
+
+  // Public galois keys used to obliviously expand the query. Each level of
+  // expand requires a GaloisKey corresponding to a different Galois group
+  // element.
+  // If GaloisKeys for each level of expand are sent (all_keys), the field
+  // contains levels_of_expand GaloisKeys.
+  // Otherwise, a single key corresponding to a generator for the Galois group
+  // is sent along with the number of levels of expand. This option increases
+  // server computation but reduces the bandwidth needed for sending all
+  // GaloisKeys.
+  // If none of the fields are set, there is no expansion.
+  oneof galois_keys {
+    // Sending all keys.
+    AllGaloisKeys all_keys = 4;
+
+    // Sending a key generator.
+    GeneratorGaloisKeys key_generator = 5;
+  }
+
+  message AllGaloisKeys {
+    repeated rlwe.SerializedGaloisKey keys = 1;
+  }
+
+  message GeneratorGaloisKeys {
+    // The key corresponding to a generator.
+    optional rlwe.SerializedGaloisKey generator = 1;
+
+    // The number of levels used to obliviously expand the query.
+    optional int32 levels_of_expand = 2;
+  }
+}
+
+// The responses comprise the full server response when decrypted and
+// concatenated together in order.
+enum PirResponseStatus {
+  PIR_RESPONSE_FAILURE = 0;
+  PIR_RESPONSE_SUCCESS = 1;
+}
+message PirResponse {
+  repeated rlwe.SerializedSymmetricRlweCiphertext response = 1;
+
+  optional PirResponseStatus status = 2;  // Required.
+}
+
+// For querying about the size of the database.
+message DatabaseSizeRequest {}
+
+message DatabaseSizeResponse {
+  // Number of entries in the database.
+  optional int32 size = 1;  // Required.
+
+  // Size of the entries in bytes in the database.
+  optional int32 entry_size = 2;  // Required.
+}

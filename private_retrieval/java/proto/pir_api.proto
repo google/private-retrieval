@@ -1,0 +1,240 @@
+syntax = "proto3";
+
+package google.privateinformationretrieval.v1;
+
+import "private_retrieval/cpp/pir_parameters.proto";
+
+option java_package = "com.google.privateinformationretrieval.v1";
+option java_multiple_files = true;
+option java_outer_classname = "PirProto";
+
+// Expected API usage to download pir://my_database/42
+//
+// 1A. Client sends:
+//    {
+//      select_database_request: {
+//        database: "my_database"
+//      }
+//    }
+//
+// 1B. Server responds:
+//    {
+//      select_database_response: {
+//        success: {
+//          configuration_parameters: { ... }
+//        }
+//      }
+//    }
+//
+// 2A. Client sends:
+//    {
+//      select_file_request: {
+//        query: { ... }
+//      }
+//    }
+//
+// 2B. Server responds:
+//    {
+//      select_file_response: {
+//        success: { }
+//      }
+//    }
+//
+// 3A. Client sends:
+//    {
+//      get_chunks_request {
+//        chunk_ranges: {
+//          min_chunk_number: 0
+//          count: (#chunks, from configuration_parameters)
+//        }
+//      }
+//    }
+//
+// 3B. Server responds:
+//    {
+//      get_chunks_response: {
+//        success: {
+//          chunks: {
+//            min_chunk_number: 0
+//            chunk: {...}
+//            chunk: {...}
+//            chunk: {...}
+//            chunk: {...}
+//          }
+//        }
+//      }
+//    }
+
+// Message sent from a client to a server via a bidirectional stream.
+message ClientToServerMessage {
+  // Chooses one of the databases on the server.
+  message SelectDatabaseRequest {
+    // Database name.
+    string database = 1;
+
+    // The desired version of the database.
+    string version = 2;
+  }
+
+  // Chooses one of the files from the selected database.
+  message SelectFileRequest {
+    // Query as constructed by the PIR client API.
+    private_retrieval.pir.PirRequest query = 1;
+  }
+
+  // Requests one or more chunks from the selected file.
+  message GetChunksRequest {
+    // Identifies a contiguous set of chunks within the selected file. Selects
+    // min_chunk_number through (min_chunk_number + count - 1), inclusive.
+    message ChunkRange {
+      // The 0-based index of the first desired chunk.
+      uint32 min_chunk_number = 1;
+      // The number of desired chunks.
+      uint32 count = 2;
+    }
+
+    // Identifies one or more contiguous chunk ranges to download.
+    repeated ChunkRange chunk_ranges = 1;
+  }
+
+  // Message kind.
+  oneof kind {
+    // SelectDatabaseRequest message.
+    SelectDatabaseRequest select_database_request = 1;
+    // SelectFileRequest message.
+    SelectFileRequest select_file_request = 2;
+    // GetChunksRequest message.
+    GetChunksRequest get_chunks_request = 3;
+  }
+}
+
+// Message sent from a server to a client via a bidirectional stream.
+message ServerToClientMessage {
+  // Response to SelectDatabaseRequest.
+  message SelectDatabaseResponse {
+    // Successful outcome.
+    message Success {
+      // Configuration parameters to instantiate the PIR client.
+      private_retrieval.pir.ConfigurationParameters configuration_parameters = 1;
+    }
+
+    // Unsuccessful outcome.
+    message Error {
+      // The requested database could not be found.
+      message NoSuchDatabase {}
+
+      // Error code.
+      oneof error_code {
+        // NoSuchDatabase error.
+        NoSuchDatabase no_such_database = 1;
+      }
+    }
+
+    // Success or failure.
+    oneof outcome {
+      // Success message.
+      Success success = 1;
+      // Error message.
+      Error error = 2;
+    }
+  }
+
+  // Response to SelectFileRequest.
+  message SelectFileResponse {
+    // Successful outcome.
+    message Success {}
+
+    // Unsuccessful outcome.
+    message Error {
+      // A database has not been selected yet.
+      message DatabaseNotYetSelected {}
+
+      // Could not select file properly.
+      message SelectFileError {}
+
+      // Error code.
+      oneof error_code {
+        // DatabaseNotYetSelected error.
+        DatabaseNotYetSelected database_not_yet_selected = 1;
+
+        // SelectFileError error.
+        SelectFileError select_file_error = 2;
+      }
+    }
+
+    // Success or failure.
+    oneof outcome {
+      // Success message.
+      Success success = 1;
+      // Error message.
+      Error error = 2;
+    }
+  }
+
+  // Response to GetChunksRequest.
+  message GetChunksResponse {
+    // Successful outcome.
+    message Success {
+      // Represents a contiguous range of encrypted chunks.
+      message Chunks {
+        // The chunk number of the first chunk.
+        uint32 min_chunk_number = 1;
+        // The encrypted chunks.
+        repeated private_retrieval.pir.PirResponseChunk chunk = 2;
+      }
+
+      // One or more contiguous ranges of encrypted chunks.
+      repeated Chunks chunks = 1;
+    }
+
+    // Unsuccessful outcome.
+    message Error {
+      // The client supplied an inappropropriate chunk range.
+      message InvalidChunkRange {
+        // The inappropriate chunk range.
+        ClientToServerMessage.GetChunksRequest.ChunkRange cause = 1;
+      }
+
+      // No PirSession found on the server.
+      message FileNotYetSelected {}
+
+      // Error encountered during query or execution of the block service.
+      message ProcessingChunkError {}
+
+      // Error code.
+      oneof error_code {
+        // InvalidChunkRange error.
+        InvalidChunkRange invalid_chunk_range = 1;
+
+        // FileNotYetSelected error.
+        FileNotYetSelected file_not_yet_selected = 2;
+
+        // ProcessingChunkError error.
+        ProcessingChunkError processing_chunk_error = 3;
+      }
+    }
+
+    // Success or failure.
+    oneof outcome {
+      // Success message.
+      Success success = 1;
+      // Error message.
+      Error error = 2;
+    }
+  }
+
+  // Response to an empty request.
+  message EmptyRequestError {}
+
+  // Message kind.
+  oneof kind {
+    // SelectDatabaseResponse message.
+    SelectDatabaseResponse select_database_response = 1;
+    // SelectFileResponse message.
+    SelectFileResponse select_file_response = 2;
+    // GetChunksResponse message.
+    GetChunksResponse get_chunks_response = 3;
+    // EmptyRequestError message.
+    EmptyRequestError empty_request_error = 4;
+  }
+}

@@ -1,0 +1,105 @@
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# Tink
+http_archive(
+     name = "tink_base",
+     urls = ["https://github.com/google/tink/archive/master.zip"],
+     strip_prefix = "tink-master/",
+)
+
+http_archive(
+     name = "tink_cc",
+     urls = ["https://github.com/google/tink/archive/master.zip"],
+     strip_prefix = "tink-master/cc",
+)
+
+load("@tink_base//:tink_base_deps.bzl", "tink_base_deps")
+tink_base_deps()
+
+load("@tink_base//:tink_base_deps_init.bzl", "tink_base_deps_init")
+tink_base_deps_init()
+
+load("@tink_cc//:tink_cc_deps.bzl", "tink_cc_deps")
+tink_cc_deps()
+
+load("@tink_cc//:tink_cc_deps_init.bzl", "tink_cc_deps_init")
+tink_cc_deps_init()
+
+# rules_cc defines rules for generating C++ code from Protocol Buffers.
+http_archive(
+    name = "rules_cc",
+    sha256 = "35f2fb4ea0b3e61ad64a369de284e4fbbdcdba71836a5555abb5e194cf119509",
+    strip_prefix = "rules_cc-624b5d59dfb45672d4239422fa1e3de1822ee110",
+    urls = [
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_cc/archive/624b5d59dfb45672d4239422fa1e3de1822ee110.tar.gz",
+        "https://github.com/bazelbuild/rules_cc/archive/624b5d59dfb45672d4239422fa1e3de1822ee110.tar.gz",
+    ],
+)
+
+load("@rules_cc//cc:repositories.bzl", "rules_cc_dependencies")
+rules_cc_dependencies()
+
+# rules_proto defines abstract rules for building Protocol Buffers.
+# https://github.com/bazelbuild/rules_proto
+http_archive(
+    name = "rules_proto",
+    sha256 = "602e7161d9195e50246177e7c55b2f39950a9cf7366f74ed5f22fd45750cd208",
+    strip_prefix = "rules_proto-97d8af4dc474595af3900dd85cb3a29ad28cc313",
+    urls = [
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_proto/archive/97d8af4dc474595af3900dd85cb3a29ad28cc313.tar.gz",
+        "https://github.com/bazelbuild/rules_proto/archive/97d8af4dc474595af3900dd85cb3a29ad28cc313.tar.gz",
+    ],
+)
+load("@rules_proto//proto:repositories.bzl", "rules_proto_dependencies", "rules_proto_toolchains")
+rules_proto_dependencies()
+rules_proto_toolchains()
+
+# Install gtest.
+http_archive(
+    name = "com_github_google_googletest",
+    sha256 = "c93fee5b85a4c8e366cb754f58874c8979438ba0da5442c995a6024dd5b42c28",
+    strip_prefix = "googletest-3b49be074d5c1340eeb447e6a8e78427051e675a",
+    url = "https://github.com/google/googletest/archive/3b49be074d5c1340eeb447e6a8e78427051e675a.tar.gz",
+)
+
+# abseil-cpp
+http_archive(
+    name = "com_google_absl",
+    sha256 = "728a813291bdec2aa46eab8356ace9f75ac2ed9dfe2df5ab603c4e6c09f1c353",
+    strip_prefix = "abseil-cpp-20200225",
+    urls = [
+         "https://github.com/abseil/abseil-cpp/archive/20200225.tar.gz",
+    ],
+)
+
+# BoringSSL
+http_archive(
+    name = "boringssl",
+    sha256 = "dc7026aa23299a0d90e35e8f55fd403f1dfa36a7cace914d706f143f8fd4b859",
+    strip_prefix = "boringssl-b851d362a7a0648062c52de64dddc8a334bf3b96",
+    url = "https://github.com/google/boringssl/archive/b851d362a7a0648062c52de64dddc8a334bf3b96.tar.gz",
+)
+
+# Logging
+http_archive(
+    name = "com_github_google_glog",
+    urls = ["https://github.com/google/glog/archive/96a2f23dca4cc7180821ca5f32e526314395d26a.zip"],
+    strip_prefix = "glog-96a2f23dca4cc7180821ca5f32e526314395d26a",
+    sha256 = "6281aa4eeecb9e932d7091f99872e7b26fa6aacece49c15ce5b14af2b7ec050f",
+)
+
+# gflags, needed for glog
+http_archive(
+    name = "com_github_gflags_gflags",
+    urls = ["https://github.com/gflags/gflags/archive/v2.2.2.tar.gz"],
+    sha256 = "34af2f15cf7367513b352bdcd2493ab14ce43692d2dcd9dfc499492966c64dcf",
+    strip_prefix = "gflags-2.2.2",
+)
+
+# Shell encryption
+http_archive(
+    name = "com_github_google_shell",
+    sha256 = "807d42caed3056cea63b9048a2fd69122c071740d43c9de546cc0fabded87a5c",
+    strip_prefix = "shell-encryption-507781e129a03f8178c9716d79163fae23d34b6a",
+    url = "https://github.com/google/shell-encryption/archive/507781e129a03f8178c9716d79163fae23d34b6a.tar.gz",
+)

@@ -1,0 +1,105 @@
+// Copyright 2021 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package private_retrieval.pir;
+
+import "private_retrieval/cpp/internal/pir.proto";
+import "shell_encryption/serialization.proto";
+
+option java_package = "com.google.intelligence.private_retrieval.pir";
+option java_multiple_files = true;
+
+// Public parameters of the PIR scheme shared by both the client and server.
+//  - avoid breaking changes
+//  - changes need to be deployed to spanner to allow accepting new data
+message ConfigurationParameters {
+  // Includes the arithmetic parameters of the scheme and the protocol
+  // parameters.
+  oneof SchemeParams {
+    // XPIR scheme based on a Ring-LWE system.
+    private_retrieval.XpirParams xpir_params = 1;
+  }
+
+  // Describes the database shape.
+  private_retrieval.DatabaseParams database_params = 2;
+}
+
+// Runtime parameters of the PIR scheme that are deterministically computable
+// from ConfigurationParameters.
+message RuntimeParameters {
+  // RuntimeParams for the PIR scheme in use.
+  oneof SchemeRuntimeParams {
+    // Runtime parameters for XPIR-style scheme.
+    private_retrieval.XpirRuntimeParams xpir_runtime_params = 1;
+  }
+}
+
+// Contains the data needed to restore a PirClient's session, including the
+// entry selected for the PIR Request.
+message SerializedClientSession {
+  // The client's encryption key for the Ring-LWE scheme. This can only be
+  // deserialized correctly with the underlying integer type used to make it
+  // (specified in the modulus q of the Ring-LWE params).
+  rlwe.SerializedNttPolynomial encrypt_key = 1;
+
+  // The client's decryption key for the Ring-LWE scheme. This can only be
+  // deserialized correctly with the underlying integer type used to make it
+  // (specified in the modulus q of the Ring-LWE params).
+  rlwe.SerializedNttPolynomial decrypt_key = 2;
+
+  // The client's desired index.
+  int32 index = 3;
+
+  // A fingerprint for the request.
+  int64 fingerprint = 4;
+}
+
+// A cryptographically blinded request for a specific file from the database.
+message PirRequest {
+  // A fingerprint identifying the request.
+  int64 fingerprint = 1;
+
+  // A vector of Ring-LWE compressed ciphertexts.
+  repeated rlwe.SerializedNttPolynomial query = 2;
+
+  // A PRNG seed used to decompress ciphertexts.
+  bytes prng_seed = 3;
+}
+
+// Represents a chunk (fixed byte-length segment) of a PIR-hosted file.
+message PirResponseChunk {
+  // A fingerprint identifying the request.
+  int64 fingerprint = 1;
+
+  // The chunk number.
+  int32 chunk_number = 2;
+
+  // The ciphertext encrypting the chunk of the desired item.
+  rlwe.SerializedSymmetricRlweCiphertext chunk = 3;
+
+  // Response status.
+  PirResponseStatus status = 4;
+}
+
+// PIR-internal status codes
+enum PirResponseStatus {
+  // Unknown
+  PIR_RESPONSE_UNKNOWN = 0;
+  // Success
+  PIR_RESPONSE_SUCCESS = 1;
+  // Failure
+  PIR_RESPONSE_FAILURE = 2;
+}
